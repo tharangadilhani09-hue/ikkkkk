@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VidLock Pro - Google Drive Secure Vault</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style> body { font-family: 'Inter', sans-serif; } </style>
+</head>
+<body class="bg-slate-50 text-slate-800 h-full flex flex-col antialiased">
+    <header class="bg-indigo-600 text-white shadow-md">
+        <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-3 cursor-pointer" onclick="router.navigate('home')">
+                <div class="bg-white text-indigo-600 p-2 rounded-xl font-bold shadow-sm">
+                    <i class="fa-solid fa-shield-halved text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight">VidLock Pro</h1>
+                    <p class="text-xs text-indigo-200">Google Drive Link Locker</p>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-5xl w-full mx-auto p-4 sm:p-6 my-auto">
+        <!-- VIEW 1: HOME / CREATE LINK -->
+        <div id="view-home" class="view-section">
+            <div class="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
+                <div class="bg-gradient-to-r from-indigo-600 to-violet-700 p-6 text-white">
+                    <h2 class="text-2xl font-bold">Lock Google Drive Video</h2>
+                    <p class="text-indigo-100 text-sm mt-1">Paste your Google Drive link and set a secret passcode!</p>
+                </div>
+
+                <form id="upload-form" onsubmit="handleDriveLinkSave(event)" class="p-6 sm:p-8 space-y-6">
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-700 mb-2">Video Title</label>
+                        <input type="text" id="video-title" required placeholder="e.g. My Tutorial Video" class="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-700 mb-2">Google Drive Share Link</label>
+                        <input type="url" id="drive-link-input" required placeholder="https://drive.google.com/file/d/.../view" class="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm">
+                        <p class="text-xs text-slate-500 mt-1">Note: Ensure your Google Drive file sharing is set to "Anyone with the link can view".</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-700 mb-2">Secret Passcode</label>
+                        <input type="text" id="video-passcode" required placeholder="e.g. 1234" class="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm font-mono">
+                    </div>
+
+                    <button type="submit" class="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition">
+                        Generate Secure Link
+                    </button>
+                </form>
+
+                <!-- Success -->
+                <div id="success-result" class="hidden p-8 bg-emerald-50 text-center space-y-4">
+                    <h3 class="text-xl font-bold text-emerald-900">Secure Link Generated Successfully!</h3>
+                    <input type="text" id="generated-link-input" readonly class="w-full bg-white px-3 py-2 rounded border text-xs font-mono text-indigo-700">
+                    <p class="text-xs">Passcode: <span id="generated-passcode-display" class="font-bold text-rose-600"></span></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW 2: WATCH -->
+        <div id="view-watch" class="view-section hidden">
+            <div class="max-w-xl mx-auto bg-white rounded-2xl shadow-xl border p-8 text-center space-y-6">
+                <div id="watch-auth-screen" class="space-y-4">
+                    <h2 id="watch-video-title" class="text-xl font-bold">Protected Video</h2>
+                    <input type="password" id="enter-passcode-input" placeholder="Enter Passcode" class="w-full px-4 py-3 rounded-xl border text-center text-lg font-mono">
+                    <button onclick="verifyAndPlayDriveVideo()" class="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold">Unlock & Watch</button>
+                    <p id="auth-error-msg" class="text-rose-500 text-xs hidden">Incorrect passcode!</p>
+                </div>
+                <div id="watch-player-screen" class="hidden space-y-4">
+                    <div id="iframe-container" class="w-full aspect-video bg-slate-900 rounded-xl overflow-hidden flex items-center justify-center">
+                        <!-- Google Drive preview iframe will be injected here -->
+                    </div>
+                    <h3 id="player-video-title" class="text-lg font-bold"></h3>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let currentWatchId = null;
+
+        // Helper to convert standard Drive link to preview/embed link
+        function getDriveEmbedUrl(url) {
+            try {
+                let fileId = '';
+                if (url.includes('/file/d/')) {
+                    fileId = url.split('/file/d/')[1].split('/')[0];
+                } else if (url.includes('id=')) {
+                    fileId = url.split('id=')[1].split('&')[0];
+                }
+                if (fileId) {
+                    return `https://drive.google.com/file/d/${fileId}/preview`;
+                }
+            } catch (e) {
+                console.error(e);
+            }
+            return url;
+        }
+
+        window.handleDriveLinkSave = (event) => {
+            event.preventDefault();
+            const title = document.getElementById('video-title').value;
+            const driveLink = document.getElementById('drive-link-input').value;
+            const passcode = document.getElementById('video-passcode').value;
+
+            const videoId = 'vid_' + Math.random().toString(36).substring(2, 9);
+            const embedUrl = getDriveEmbedUrl(driveLink);
+
+            // Store details locally in browser (LocalStorage)
+            const videoData = {
+                title: title,
+                url: embedUrl,
+                passcode: passcode
+            };
+            localStorage.setItem(videoId, JSON.stringify(videoData));
+
+            document.getElementById('upload-form').classList.add('hidden');
+            document.getElementById('success-result').classList.remove('hidden');
+            
+            const shareUrl = window.location.origin + window.location.pathname + '#watch?id=' + videoId;
+            document.getElementById('generated-link-input').value = shareUrl;
+            document.getElementById('generated-passcode-display').innerText = passcode;
+        };
+
+        window.verifyAndPlayDriveVideo = () => {
+            const entered = document.getElementById('enter-passcode-input').value;
+            const dataStr = localStorage.getItem(currentWatchId);
+
+            if (dataStr) {
+                const data = JSON.parse(dataStr);
+                if (data.passcode === entered) {
+                    document.getElementById('watch-auth-screen').classList.add('hidden');
+                    document.getElementById('watch-player-screen').classList.remove('hidden');
+                    
+                    const container = document.getElementById('iframe-container');
+                    container.innerHTML = `<iframe src="${data.url}" class="w-full h-full" allow="autoplay"></iframe>`;
+                    document.getElementById('player-video-title').innerText = data.title;
+                } else {
+                    document.getElementById('auth-error-msg').classList.remove('hidden');
+                }
+            } else {
+                alert('Video data not found or expired!');
+            }
+        };
+
+        window.router = {
+            navigate: function(view, param = null) {
+                document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
+                if (view === 'home') {
+                    document.getElementById('view-home').classList.remove('hidden');
+                } else if (view === 'watch') {
+                    currentWatchId = param;
+                    document.getElementById('view-watch').classList.remove('hidden');
+                    const dataStr = localStorage.getItem(param);
+                    if (dataStr) {
+                        const data = JSON.parse(dataStr);
+                        document.getElementById('watch-video-title').innerText = data.title;
+                    } else {
+                        document.getElementById('watch-video-title').innerText = "Protected Video (Link not found)";
+                    }
+                }
+            }
+        };
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const hash = window.location.hash;
+            if (hash.includes('#watch?id=')) {
+                const id = hash.split('#watch?id=')[1];
+                if (id) router.navigate('watch', id);
+            }
+        });
+    </script>
+</body>
+</html>
